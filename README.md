@@ -1,15 +1,41 @@
-# OpenLab
+<p align="center">
+  <img src="assets/OpenLab.png" alt="OpenLab Logo" width="400">
+</p>
 
-Email-triggered experiment runner powered by Claude Code. Send an email with your experiment request, and the system automatically plans, executes, and returns results.
+<h1 align="center">OpenLab</h1>
+
+<p align="center">
+  <strong>Email-triggered Experiment Runner powered by Claude Code</strong>
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> |
+  <a href="#quick-start">Quick Start</a> |
+  <a href="#usage">Usage</a> |
+  <a href="#contact">Contact</a> |
+  <a href="README_CN.md">中文文档</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python">
+  <img src="https://img.shields.io/badge/pytorch-2.10+-ee4c2c.svg" alt="PyTorch">
+  <img src="https://img.shields.io/badge/scikit--learn-1.7+-f7931e.svg" alt="Scikit-learn">
+  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License">
+  <img src="https://img.shields.io/badge/platform-linux-lightgrey.svg" alt="Platform">
+</p>
+
+---
+
+Send an email with your experiment request, and the system automatically plans, executes, and returns results.
 
 ## Features
 
-- **Email-triggered experiments**: Send experiment requests via email, receive results automatically
-- **Claude Code integration**: AI-powered experiment planning and code generation
-- **Multi-user support**: Organizes runs by sender email address
-- **Auto-start on boot**: systemd service for persistent background operation
-- **Comprehensive outputs**: Generates spec, code, figures, tables, and PDF reports
-- **Conda environment**: Pre-configured Python 3.10 environment with ML/DL/statistics packages
+- **Email-triggered experiments** - Send experiment requests via email, receive results automatically
+- **Claude Code integration** - AI-powered experiment planning and code generation
+- **Multi-user support** - Organizes runs by sender email address
+- **Auto-start on boot** - systemd service for persistent background operation
+- **Comprehensive outputs** - Generates spec, code, figures, tables, and PDF reports
+- **Conda environment** - Pre-configured Python 3.10 environment with ML/DL/statistics packages
 
 ## Quick Start
 
@@ -242,6 +268,28 @@ The conda `openex` environment includes:
 | **Visualization** | matplotlib, seaborn, plotly |
 | **Utilities** | pyyaml, tqdm |
 
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Contact
+
+- **Email**: duanzhenke@code-soul.com
+- **GitHub**: [@erwinmsmith](https://github.com/erwinmsmith)
+
+## Acknowledgments
+
+- [Claude Code](https://www.anthropic.com/) - AI-powered code generation
+- [PyTorch](https://pytorch.org/) - Deep learning framework
+- [Scikit-learn](https://scikit-learn.org/) - Machine learning library
+- [Quarto](https://quarto.org/) - Scientific publishing system
+
 ## License
 
-MIT License
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+<p align="center">
+  Made with by <a href="mailto:duanzhenke@code-soul.com">Zhenke Duan</a>
+</p>
