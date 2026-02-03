@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check config exists
+if [[ ! -f "$ROOT/config/server.yaml" ]]; then
+  echo "Error: config/server.yaml not found"
+  echo "Run: cp config/server.yaml.example config/server.yaml"
+  echo "Then edit config/server.yaml with your IMAP/SMTP credentials"
+  exit 1
+fi
+
+echo "Starting email listener..."
+echo "Logs: $ROOT/logs/listener.log"
+echo "PID file: $ROOT/logs/listener.pid"
+echo ""
+
+mkdir -p "$ROOT/logs"
+
+# Run in background with nohup
+nohup python3 "$ROOT/tools/email_listener.py" >> "$ROOT/logs/listener.log" 2>&1 &
+echo $! > "$ROOT/logs/listener.pid"
+
+echo "Started with PID $(cat "$ROOT/logs/listener.pid")"
+echo "To stop: ./stop_listener"
+echo "To view logs: tail -f logs/listener.log"

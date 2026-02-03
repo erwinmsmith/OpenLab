@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo "Installing cc-exp-runner as systemd service..."
+
+# Create logs directory
+mkdir -p "$ROOT/logs"
+
+# Copy service file to systemd
+sudo cp "$ROOT/cc-exp-runner.service" /etc/systemd/system/
+
+# Reload systemd
+sudo systemctl daemon-reload
+
+# Enable service (auto-start on boot)
+sudo systemctl enable cc-exp-runner
+
+# Start service now
+sudo systemctl start cc-exp-runner
+
+echo ""
+echo "Service installed and started!"
+echo ""
+echo "Commands:"
+echo "  sudo systemctl status cc-exp-runner   # Check status"
+echo "  sudo systemctl stop cc-exp-runner     # Stop"
+echo "  sudo systemctl start cc-exp-runner    # Start"
+echo "  sudo systemctl restart cc-exp-runner  # Restart"
+echo "  journalctl -u cc-exp-runner -f        # View logs"
+echo "  tail -f $ROOT/logs/listener.log       # View logs (file)"

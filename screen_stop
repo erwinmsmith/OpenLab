@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Stop email listener screen session
+# Usage: ./screen_stop
+
+SCREEN_NAME="cc-exp-runner"
+
+if screen -list | grep -q "$SCREEN_NAME"; then
+    screen -S "$SCREEN_NAME" -X quit
+    echo "Stopped screen session '$SCREEN_NAME'"
+else
+    echo "Screen session '$SCREEN_NAME' not running"
+fi

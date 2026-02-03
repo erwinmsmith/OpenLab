@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Usage: ./exp "<request>" [user_id]
+# user_id is optional - if provided, uses config/users.yaml for SMTP
+# if not provided, uses environment variables
+
+REQ="${1:-}"
+USER_ID="${2:-}"
+
+if [[ -z "${REQ}" ]]; then
+  echo "Usage: ./exp \"<natural language experiment request>\" [user_id]"
+  echo ""
+  echo "Examples:"
+  echo "  ./exp \"Train ResNet on CIFAR-10\" alice"
+  echo "  ./exp \"Run linear regression\" bob"
+  echo ""
+  echo "Manage users with: python3 tools/user_manager.py list"
+  exit 2
+fi
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUN_ID="$(date +%Y%m%d_%H%M%S)_$RANDOM"
+RUN_DIR="$ROOT/runs/$RUN_ID"
+ART="$RUN_DIR/artifacts"
+mkdir -p "$ART/figures" "$ART/tables" "$ART/logs"
+
+echo "[1/5] Planning with Claude Code... (run_id=$RUN_ID)"
+
+# Let Claude Code create spec.yaml, run.sh, summary.md, report.qmd in RUN_DIR
+# Using --append-system-prompt-file to enforce rules
+(
+  cd "$ROOT"
+  claude -p \
+    --append-system-prompt-file "$ROOT/prompts/exp_rules.txt" \
+    "User request: $REQ
+
+Please create the following under runs/$RUN_ID/:
+1) spec.yaml: structured experiment design (data, model, hyperparams, seeds, metrics, statistical tests, artifact list)
+2) run.sh: executable script (includes: prepare data -> train -> evaluate -> generate figures/tables -> write metrics.json & summary.md)
+3) artifacts/summary.md: a concise summary (metrics, conclusions, next steps)
+4) artifacts/report.qmd: based on templates/report.qmd, fill in this experiment's content, referencing artifacts/figures and artifacts/tables
+Note: all outputs must be written to runs/$RUN_ID/; run.sh must write logs to artifacts/logs/."
+)
+
+# Basic validation
+test -f "$RUN_DIR/spec.yaml"
+test -f "$RUN_DIR/run.sh"
+test -f "$ART/summary.md"
+test -f "$ART/report.qmd"
+chmod +x "$RUN_DIR/run.sh"
+
+echo "[2/5] Running experiment..."
+(
+  cd "$ROOT"
+  bash "$RUN_DIR/run.sh" |& tee "$ART/logs/run_stdout_stderr.log"
+)
+
+echo "[3/5] Rendering report (MD + PDF)..."
+(
+  cd "$ROOT"
+  # PDF
+  quarto render "$ART/report.qmd" --to pdf
+  # Markdown (gfm)
+  quarto render "$ART/report.qmd" --to gfm
+  # Ensure filenames are correct
+  if [[ -f "$ART/report.pdf" ]]; then :; else
+    PDF_OUT="$(ls -1 "$ART"/*.pdf | head -n 1 || true)"
+    [[ -n "$PDF_OUT" ]] && mv "$PDF_OUT" "$ART/report.pdf"
+  fi
+  if [[ -f "$ART/report.md" ]]; then :; else
+    MD_OUT="$(ls -1 "$ART"/*.md | grep -v summary.md | head -n 1 || true)"
+    [[ -n "$MD_OUT" ]] && mv "$MD_OUT" "$ART/report.md"
+  fi
+)
+
+echo "[4/5] Packaging artifacts..."
+ZIP_PATH="$(python3 "$ROOT/tools/pack_run.py" "$RUN_DIR")"
+echo "ZIP: $ZIP_PATH"
+
+echo "[5/5] Notifying (email first)..."
+SUBJECT="[EXP DONE] $RUN_ID"
+if [[ -n "$USER_ID" ]]; then
+  python3 "$ROOT/tools/notify_email.py" "$RUN_DIR" "$SUBJECT" "$USER_ID" || echo "Warning: Email notification failed"
+  python3 "$ROOT/tools/feishu_webhook.py" "$SUBJECT" "report.pdf + run.zip generated under runs/$RUN_ID/" "$USER_ID" || true
+else
+  python3 "$ROOT/tools/notify_email.py" "$RUN_DIR" "$SUBJECT" || echo "Warning: Email notification failed (no user_id, using env vars)"
+  python3 "$ROOT/tools/feishu_webhook.py" "$SUBJECT" "report.pdf + run.zip generated under runs/$RUN_ID/" || true
+fi
+
+echo "Done: $RUN_DIR"

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Real-time log viewer for cc-exp-runner
+# Usage: ./view_logs [run_dir]
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -n "$1" ]]; then
+    # View specific run directory logs
+    RUN_DIR="$1"
+    if [[ ! -d "$RUN_DIR" ]]; then
+        RUN_DIR="$ROOT/runs/$1"
+    fi
+    echo "Viewing logs for: $RUN_DIR"
+    echo "Press Ctrl+C to stop"
+    echo ""
+    tail -f "$RUN_DIR/artifacts/logs/"*.log 2>/dev/null || echo "No logs found in $RUN_DIR"
+else
+    # View main listener log + latest run
+    echo "=== CC-EXP-RUNNER Log Viewer ==="
+    echo "Main log: $ROOT/logs/listener.log"
+    echo ""
+    echo "Recent runs:"
+    ls -lt "$ROOT/runs/"*/*/artifacts/logs/claude_output.log 2>/dev/null | head -5
+    echo ""
+    echo "Press Ctrl+C to stop"
+    echo "=========================================="
+    echo ""
+    tail -f "$ROOT/logs/listener.log" 2>/dev/null
+fi

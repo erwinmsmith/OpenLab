@@ -1,0 +1,30 @@
+---
+title: "Experiment Report"
+format:
+  pdf:
+    toc: true
+    number-sections: true
+  gfm: default
+---
+
+## Summary
+
+(Claude will fill this section.)
+
+## Key Metrics
+
+(Claude will generate a table from artifacts/metrics.json or artifacts/tables/*.csv)
+
+## Figures
+
+(Claude will include selected plots from artifacts/figures/)
+
+## Statistical / Econometric Results
+
+(Claude will include coefficient tables, tests, CI, etc.)
+
+## Reproducibility
+
+- Spec: `spec.yaml` 
+- Run script: `run.sh` 
+- Artifacts: `artifacts/` 

@@ -1,0 +1,22 @@
+# Server configuration for email-triggered experiments
+# Copy to server.yaml and fill in your credentials
+
+# The openex email account (receives experiment requests, sends replies)
+email: "openex@code-soul.com"
+
+# IMAP settings (for reading incoming emails)
+imap:
+  host: "imap.your-provider.com"
+  port: 993
+  user: "openex@code-soul.com"
+  pass: "your_imap_password"
+
+# SMTP settings (for sending replies)
+smtp:
+  host: "smtp.your-provider.com"
+  port: 587
+  user: "openex@code-soul.com"
+  pass: "your_smtp_password"
+
+# How often to check for new emails (seconds)
+poll_interval: 60

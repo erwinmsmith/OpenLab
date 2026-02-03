@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Start email listener in a screen session
+# Usage: ./screen_start
+
+set -e
+
+SCREEN_NAME="cc-exp-runner"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check if screen session already exists
+if screen -list | grep -q "$SCREEN_NAME"; then
+    echo "Screen session '$SCREEN_NAME' already running."
+    echo ""
+    echo "Commands:"
+    echo "  screen -r $SCREEN_NAME    # Attach to session"
+    echo "  ./screen_stop             # Stop the listener"
+    exit 0
+fi
+
+# Create logs directory
+mkdir -p "$ROOT/logs"
+
+# Start in screen
+echo "Starting cc-exp-runner in screen session '$SCREEN_NAME'..."
+screen -dmS "$SCREEN_NAME" bash -c "
+    export PATH=/home/ninghanwen/.nvm/versions/node/v20.19.5/bin:/home/ninghanwen/anaconda3/envs/openex/bin:/home/ninghanwen/anaconda3/bin:\$PATH
+    export HOME=/home/ninghanwen
+    cd $ROOT
+    python3 tools/email_listener.py 2>&1 | tee -a logs/listener.log
+"
+
+sleep 1
+
+if screen -list | grep -q "$SCREEN_NAME"; then
+    echo "Started successfully!"
+    echo ""
+    echo "Commands:"
+    echo "  screen -r $SCREEN_NAME    # Attach to session (Ctrl+A D to detach)"
+    echo "  ./screen_stop             # Stop the listener"
+    echo "  tail -f logs/listener.log # View logs"
+else
+    echo "Failed to start. Check logs/listener.log"
+    exit 1
+fi
