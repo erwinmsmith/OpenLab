@@ -5,14 +5,14 @@ After=network.target
 [Service]
 Type=simple
 User=ninghanwen
-WorkingDirectory=/home/ninghanwen/openex/cc-exp-runner
+WorkingDirectory=/home/ninghanwen/OpenLab
 Environment="PATH=/home/ninghanwen/.nvm/versions/node/v20.19.5/bin:/home/ninghanwen/anaconda3/envs/openex/bin:/home/ninghanwen/anaconda3/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="HOME=/home/ninghanwen"
-ExecStart=/usr/bin/python3 /home/ninghanwen/openex/cc-exp-runner/tools/email_listener.py
+ExecStart=/usr/bin/python3 /home/ninghanwen/OpenLab/tools/email_listener.py
 Restart=always
 RestartSec=10
-StandardOutput=append:/home/ninghanwen/openex/cc-exp-runner/logs/listener.log
-StandardError=append:/home/ninghanwen/openex/cc-exp-runner/logs/listener.log
+StandardOutput=append:/home/ninghanwen/OpenLab/logs/listener.log
+StandardError=append:/home/ninghanwen/OpenLab/logs/listener.log
 
 [Install]
 WantedBy=multi-user.target
