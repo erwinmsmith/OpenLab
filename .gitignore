@@ -32,3 +32,6 @@ build/
 Thumbs.db
 # Artifacts
 artifacts/
+
+# Temporary attachments
+temp_attachments/
