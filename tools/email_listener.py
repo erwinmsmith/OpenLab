@@ -23,6 +23,7 @@ import smtplib
 import ssl
 import subprocess
 import json
+import re
 import tempfile
 import shutil
 from email.message import EmailMessage
@@ -418,6 +419,100 @@ def verify_experiment_results(run_dir: Path, art_dir: Path) -> dict:
     return result
 
 
+def _auto_generate_missing_files(run_dir: Path, art_dir: Path):
+    """
+    Auto-generate missing simple files (run.sh, summary.md, report.qmd) when Claude Code
+    times out but has already created the core files (main.py, src/, config/).
+    """
+    # Auto-generate run.sh if missing
+    if not (run_dir / "run.sh").exists() and (run_dir / "main.py").exists():
+        run_sh_content = f"""#!/bin/bash
+set -e
+echo "Starting experiment at $(date)"
+echo "Working directory: $(pwd)"
+
+cd {run_dir}
+
+# Run main experiment
+python3 main.py 2>&1 | tee artifacts/logs/experiment.log
+
+echo "Experiment completed at $(date)"
+"""
+        with open(run_dir / "run.sh", "w") as f:
+            f.write(run_sh_content)
+        (run_dir / "run.sh").chmod(0o755)
+        print(f"[AUTO] Generated run.sh", flush=True)
+
+    # Auto-generate spec.yaml if missing
+    if not (run_dir / "spec.yaml").exists():
+        spec_content = """experiment:
+  name: auto-generated
+  description: Experiment spec auto-generated after timeout
+  status: partial
+"""
+        with open(run_dir / "spec.yaml", "w") as f:
+            f.write(spec_content)
+        print(f"[AUTO] Generated spec.yaml", flush=True)
+
+    # Auto-generate summary.md if missing
+    if not (art_dir / "summary.md").exists():
+        summary_content = """# Experiment Summary
+
+> Note: This summary was auto-generated because Claude Code timed out during generation.
+> The experiment code was successfully created. Please check the results below.
+
+## Status
+- Code generation: Partial (timeout during generation)
+- Experiment execution: Pending
+
+## Files Generated
+- main.py: Main experiment entry point
+- src/: Modular source code
+- config/: Configuration files
+"""
+        with open(art_dir / "summary.md", "w") as f:
+            f.write(summary_content)
+        print(f"[AUTO] Generated summary.md", flush=True)
+
+    # Auto-generate report.qmd if missing
+    if not (art_dir / "report.qmd").exists():
+        report_content = """---
+title: "Experiment Report"
+format:
+  pdf:
+    toc: true
+  gfm: default
+---
+
+# Experiment Report
+
+> Note: This report was auto-generated because Claude Code timed out during generation.
+
+## Results
+
+Please refer to the figures and tables in the artifacts directory.
+
+## Figures
+
+```{python}
+#| echo: false
+import os
+figures_dir = "figures"
+if os.path.exists(figures_dir):
+    for f in sorted(os.listdir(figures_dir)):
+        if f.endswith(('.png', '.pdf', '.jpg')):
+            print(f"![{f}]({figures_dir}/{f})")
+```
+
+## Tables
+
+Please check the `tables/` directory for CSV results.
+"""
+        with open(art_dir / "report.qmd", "w") as f:
+            f.write(report_content)
+        print(f"[AUTO] Generated report.qmd", flush=True)
+
+
 def run_claude_code_with_retry(prompt: str, run_dir: Path, art_dir: Path, max_retries: int = 2) -> tuple:
     """
     Run Claude Code with automatic retry on errors.
@@ -443,6 +538,10 @@ def run_claude_code_with_retry(prompt: str, run_dir: Path, art_dir: Path, max_re
         
         # Run Claude Code using subprocess.run (more reliable than Popen+threading for nohup)
         # stdin=DEVNULL prevents EBADF error when running via nohup
+        claude_output = ""
+        return_code = -1
+        timed_out = False
+        
         try:
             result = subprocess.run(
                 [claude_path, "-p", "--dangerously-skip-permissions", 
@@ -452,21 +551,16 @@ def run_claude_code_with_retry(prompt: str, run_dir: Path, art_dir: Path, max_re
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                timeout=600,
+                timeout=1200,
                 universal_newlines=True
             )
             claude_output = result.stdout or ""
             return_code = result.returncode
         except subprocess.TimeoutExpired as e:
-            claude_output = ""
+            timed_out = True
             if hasattr(e, 'stdout') and e.stdout:
                 claude_output = e.stdout if isinstance(e.stdout, str) else e.stdout.decode('utf-8', errors='ignore')
-            with open(claude_log, "a", encoding="utf-8") as f:
-                if claude_output:
-                    f.write(claude_output)
-                f.write("\n\n=== TIMEOUT (600s) ===\n")
             print(f"[DEBUG] Claude Code timeout on attempt {attempt + 1}", flush=True)
-            return False, "Claude Code timeout after 600 seconds", attempt
         except Exception as e:
             with open(claude_log, "a", encoding="utf-8") as f:
                 f.write(f"\n\n=== ERROR: {e} ===\n")
@@ -479,16 +573,29 @@ def run_claude_code_with_retry(prompt: str, run_dir: Path, art_dir: Path, max_re
         with open(claude_log, "a", encoding="utf-8") as f:
             if claude_output:
                 f.write(claude_output)
+            if timed_out:
+                f.write("\n\n=== TIMEOUT (1200s) ===\n")
             f.write(f"\n\n=== ATTEMPT {attempt + 1} FINISHED ===\n")
             f.write(f"Return code: {return_code}\n")
             f.write(f"Ended at: {datetime.now().isoformat()}\n")
         
         # Print summary to console
         output_lines = claude_output.strip().split('\n') if claude_output.strip() else []
-        print(f"[DEBUG] Claude attempt {attempt + 1} finished, return_code={return_code}, output_lines={len(output_lines)}", flush=True)
+        print(f"[DEBUG] Claude attempt {attempt + 1} finished, return_code={return_code}, output_lines={len(output_lines)}, timed_out={timed_out}", flush=True)
         if output_lines:
             for line in output_lines[-5:]:
                 print(f"[CLAUDE] {line.rstrip()}", flush=True)
+        
+        # After timeout, try to salvage if main.py was already created
+        if timed_out:
+            if (run_dir / "main.py").exists():
+                print(f"[DEBUG] main.py exists after timeout, auto-generating missing files...", flush=True)
+                _auto_generate_missing_files(run_dir, art_dir)
+                # Fall through to file check below
+            else:
+                if attempt < max_retries:
+                    continue
+                return False, "Claude Code timeout after 1200 seconds (no main.py generated)", attempt
         
         # Check if required files exist
         required = [
@@ -516,11 +623,102 @@ IMPORTANT: Make sure to create ALL files including spec.yaml, run.sh, main.py, a
             else:
                 return False, f"Planning failed after {max_retries + 1} attempts. Missing files: {missing}", attempt
         
-        # Files exist, now run the experiment
+        # Files exist, now do a quick syntax/import pre-check before full run
         (run_dir / "run.sh").chmod(0o755)
         conda_env = os.environ.get("CONDA_ENV", "openex")
         conda_base = os.environ.get("CONDA_BASE", os.path.expanduser("~/anaconda3"))
         
+        # Step 1: Compile ALL .py files to catch syntax errors in submodules
+        precheck_compile_cmd = f"source {conda_base}/etc/profile.d/conda.sh && conda activate {conda_env} && cd {run_dir} && find . -name '*.py' -exec python3 -m py_compile {{}} \\; 2>&1"
+        precheck_compile = subprocess.run(
+            ["bash", "-c", precheck_compile_cmd],
+            cwd=str(run_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=30,
+            universal_newlines=True
+        )
+        
+        if precheck_compile.returncode != 0:
+            compile_errors = precheck_compile.stdout or "Unknown compile error"
+            print(f"[PRECHECK] Syntax error: {compile_errors[:200]}", flush=True)
+            with open(art_dir / "logs" / "run_stdout_stderr.log", "w") as f:
+                f.write(f"PRE-CHECK SYNTAX FAILED:\n{compile_errors}\n")
+            
+            if attempt < max_retries:
+                # Read the problematic file content to help Claude fix it
+                error_file_content = ""
+                match = re.search(r"File \"([^\"]+)\", line (\d+)", compile_errors)
+                if match:
+                    err_file, err_line = match.group(1), int(match.group(2))
+                    try:
+                        with open(err_file, 'r') as ef:
+                            lines = ef.readlines()
+                            start = max(0, err_line - 5)
+                            end = min(len(lines), err_line + 5)
+                            error_file_content = f"\nFile content around error ({err_file} lines {start+1}-{end}):\n"
+                            for i in range(start, end):
+                                marker = ">>> " if i == err_line - 1 else "    "
+                                error_file_content += f"{marker}{i+1}: {lines[i]}"
+                    except Exception:
+                        pass
+                
+                fix_prompt = f"""FIX REQUEST - SYNTAX ERROR in generated code.
+
+ERROR:
+{compile_errors[:2000]}
+{error_file_content}
+
+IMPORTANT: This is a SYNTAX error (truncated line, missing parenthesis, etc). 
+Read the file carefully and fix the broken syntax. 
+Also use built-in types (dict, list) instead of typing.Dict/List for Python 3.10+.
+
+Fix the code in runs/{run_dir.relative_to(ROOT_DIR)}/"""
+                current_prompt = fix_prompt
+                print(f"[RETRY] Syntax pre-check failed, sending fix request... ({attempt + 1}/{max_retries})", flush=True)
+                continue
+            else:
+                return False, f"Syntax pre-check failed after {max_retries + 1} attempts: {compile_errors[:500]}", attempt
+        
+        # Step 2: Import check - verify cross-module imports work
+        precheck_import_cmd = f"source {conda_base}/etc/profile.d/conda.sh && conda activate {conda_env} && cd {run_dir} && python3 -c \"import sys; sys.path.insert(0,'.'); import main; print('Import OK')\" 2>&1"
+        precheck_import = subprocess.run(
+            ["bash", "-c", precheck_import_cmd],
+            cwd=str(run_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=30,
+            universal_newlines=True
+        )
+        
+        if precheck_import.returncode != 0:
+            import_errors = precheck_import.stdout or "Unknown import error"
+            print(f"[PRECHECK] Import error: {import_errors[:200]}", flush=True)
+            with open(art_dir / "logs" / "run_stdout_stderr.log", "w") as f:
+                f.write(f"PRE-CHECK IMPORT FAILED:\n{import_errors}\n")
+            
+            if attempt < max_retries:
+                fix_prompt = f"""FIX REQUEST - IMPORT ERROR in generated code.
+
+ERROR:
+{import_errors[:2000]}
+
+IMPORTANT: This is an import error. Common causes:
+1. Class/function name in import doesn't match the actual name in the target file
+2. Missing __init__.py re-exports
+3. Circular imports between modules
+4. Using typing.Dict/List instead of built-in dict/list
+
+Fix the code in runs/{run_dir.relative_to(ROOT_DIR)}/"""
+                current_prompt = fix_prompt
+                print(f"[RETRY] Import pre-check failed, sending fix request... ({attempt + 1}/{max_retries})", flush=True)
+                continue
+            else:
+                return False, f"Import pre-check failed after {max_retries + 1} attempts: {import_errors[:500]}", attempt
+        
+        print(f"[PRECHECK] Passed, running experiment...", flush=True)
+        
+        # Run the full experiment
         with open(art_dir / "logs" / "run_stdout_stderr.log", "w") as log_file:
             exp_result = subprocess.run(
                 ["bash", "-c", f"source {conda_base}/etc/profile.d/conda.sh && conda activate {conda_env} && bash {run_dir / 'run.sh'}"],

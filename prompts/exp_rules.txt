@@ -33,8 +33,7 @@ runs/<run_id>/
 │   ├── data/
 │   │   ├── __init__.py
 │   │   ├── dataset.py           # Dataset classes (PyTorch Dataset or data loaders)
-│   │   ├── preprocessing.py     # Data preprocessing utilities
-│   │   └── augmentation.py      # Data augmentation (if applicable)
+│   │   └── preprocessing.py     # Data preprocessing utilities
 │   ├── models/
 │   │   ├── __init__.py
 │   │   ├── base.py              # Base model class/interface
@@ -43,110 +42,63 @@ runs/<run_id>/
 │   │   ├── __init__.py
 │   │   ├── trainer.py           # Training loop with logging
 │   │   └── evaluator.py         # Evaluation metrics and procedures
-│   ├── utils/
-│   │   ├── __init__.py
-│   │   ├── logger.py            # Logging utilities
-│   │   ├── seed.py              # Random seed management
-│   │   └── io.py                # File I/O utilities
 │   └── visualization/
 │       ├── __init__.py
-│       ├── planner.py           # Visualization planning based on experiment type
-│       ├── training_plots.py    # Training curves, loss plots
-│       ├── result_plots.py      # Result comparison plots
-│       └── diagnostic_plots.py  # Statistical diagnostic plots
+│       └── plots.py             # All visualization functions in one file
 ├── artifacts/
 │   ├── summary.md
 │   ├── report.qmd
 │   ├── metrics.json
 │   ├── figures/                 # All generated figures (png/pdf)
-│   └── tables/                  # All generated tables (csv/xlsx/tex)
+│   ├── tables/                  # All generated tables (csv)
+│   └── logs/                    # Execution logs
 └── data/                        # User uploaded data (if any)
     └── raw/                     # Raw data files
+
+【CROSS-MODULE CONSISTENCY - CRITICAL】
+**This is the #1 source of bugs. Follow these rules EXACTLY:**
+1. **Write __init__.py FIRST for each package** - define all public exports explicitly
+2. **Use ONLY built-in type hints** (dict, list, tuple, not typing.Dict/List) for Python 3.10+
+3. **When importing between modules**, double-check the EXACT class/function name exists in the target module
+4. **Every __init__.py must re-export** all public classes/functions:
+```python
+# src/models/__init__.py
+from .base import BaseModel
+from .svm_model import SVMModel
+from .lstm_model import LSTMModel
+```
+5. **Naming convention**: File names use snake_case, class names use PascalCase
+   - File: `svm_model.py` -> Class: `SVMModel`
+   - File: `lstm_model.py` -> Class: `LSTMModel`
+6. **NO circular imports**: Lower modules (data, models) must NOT import from higher modules (training, visualization)
+7. **After writing ALL files**, mentally verify every import chain works:
+   main.py -> config -> OK
+   main.py -> src.models -> src.models.base -> OK
+   main.py -> src.training -> src.models (lower level) -> OK
 
 【MAIN.PY REQUIREMENTS】
 - main.py MUST be the single entry point that controls ALL hyperparameters
 - Use argparse or config file to accept parameters
-- Example structure:
+- MUST have `if __name__ == '__main__':` guard
+- ALL imports from local modules must use absolute imports with sys.path:
 ```python
-import argparse
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from config.config import ExperimentConfig
+from src.models import SVMModel, LSTMModel
 from src.training.trainer import Trainer
-from src.visualization.planner import VisualizationPlanner
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='config/default_config.yaml')
-    parser.add_argument('--seeds', nargs='+', type=int, default=[42, 123, 456])
-    parser.add_argument('--epochs', type=int, default=50)
-    # ... other hyperparameters
-    args = parser.parse_args()
-    
-    config = ExperimentConfig.from_args(args)
-    trainer = Trainer(config)
-    results = trainer.run()
-    
-    # Dynamic visualization based on experiment type
-    viz_planner = VisualizationPlanner(config, results)
-    viz_planner.generate_all()
-
-if __name__ == '__main__':
-    main()
+from src.visualization.plots import plot_all_results
 ```
 
-【DYNAMIC VISUALIZATION PLANNING】
-The visualization module MUST dynamically plan and generate visualizations based on experiment type:
-
-1. For Deep Learning experiments:
-   - Training/validation loss curves
-   - Learning rate schedule (if applicable)
-   - Metric curves (accuracy, F1, AUC, etc.)
-   - Confusion matrix (classification)
-   - ROC curves (binary/multi-class)
-   - Feature importance / attention visualization
-   - Model architecture diagram (optional)
-
-2. For Statistical/Econometric experiments:
-   - Coefficient plots with confidence intervals
-   - Residual plots (residuals vs fitted, Q-Q plot)
-   - Heteroscedasticity diagnostics
-   - Correlation heatmaps
-   - Distribution plots
-   - Time series plots (if applicable)
-
-3. For Data Analysis experiments (user uploaded CSV):
-   - Exploratory data analysis (EDA) plots
-   - Missing value visualization
-   - Feature distributions
-   - Correlation analysis
-   - Outlier detection visualization
-   - Target variable analysis
-
-4. Common visualizations:
-   - Result comparison (bar/box/violin plots)
-   - Statistical significance indicators
-   - Summary tables as figures
-
-The VisualizationPlanner class should:
-```python
-class VisualizationPlanner:
-    def __init__(self, config, results):
-        self.config = config
-        self.results = results
-        self.experiment_type = self._detect_experiment_type()
-        
-    def _detect_experiment_type(self):
-        # Detect: 'deep_learning', 'statistical', 'data_analysis', 'mixed'
-        pass
-    
-    def plan_visualizations(self):
-        # Return list of visualization specs based on experiment type
-        pass
-    
-    def generate_all(self):
-        # Generate all planned visualizations
-        for viz_spec in self.plan_visualizations():
-            self._generate_visualization(viz_spec)
-```
+【DYNAMIC VISUALIZATION】
+The visualization module should generate visualizations based on experiment type:
+- Deep Learning: loss curves, metric curves, confusion matrix, ROC curves
+- ML Comparison: grouped bar charts, box plots across seeds, parameter heatmaps
+- Statistical: coefficient plots, residual plots, CI plots, correlation heatmaps
+- Data Analysis: EDA plots, distributions, correlation analysis
+Save ALL figures to artifacts/figures/ as PNG.
 
 【ARTIFACT REQUIREMENTS】
 - MUST generate:
@@ -159,7 +111,7 @@ class VisualizationPlanner:
   - runs/<run_id>/artifacts/report.qmd
   - runs/<run_id>/artifacts/metrics.json
   - runs/<run_id>/artifacts/figures/ (png/pdf)
-  - runs/<run_id>/artifacts/tables/ (csv/xlsx/tex)
+  - runs/<run_id>/artifacts/tables/ (csv)
 - Report MUST reference figures/ and tables/ results
 - All outputs must be reproducible: save config, seed, commands, environment info
 
@@ -194,26 +146,24 @@ If user uploads data (CSV, Excel, etc.):
 - Do not require user to manually edit files; everything auto-completes
 
 【OUTPUT FORMAT REQUIREMENTS】
-- Directly create/modify files in the project (spec.yaml, run.sh, main.py, src/, etc.)
+- Directly create/modify files in the project (spec.yaml, run.sh, main.py, config/, src/)
 - File contents must be self-consistent and directly executable
 - Generated Python code must be logically consistent: DataFrame column names, variable names must be consistent throughout
 - Prefer simple, robust implementations; avoid complex nested logic
 - run.sh should call: python3 main.py [args]
 
 【CODE QUALITY REQUIREMENTS - CRITICAL】
-- **VERIFY ALL FUNCTION CALLS**: Before calling any function, verify that:
-  1. The function signature matches the arguments you're passing
-  2. Argument types are correct (e.g., don't pass int where str is expected)
-  3. All required arguments are provided
-- **KEEP IT SIMPLE**: For small experiments, prefer a single main.py file over complex module structure
-- **TEST MENTALLY**: Before finalizing code, trace through the execution path to ensure no errors
+- **VERIFY ALL CROSS-MODULE IMPORTS**: After writing all files, verify every import statement references an EXISTING class/function in the target module. This is the most common bug.
+- **USE BUILT-IN TYPES**: Use dict, list, tuple (not typing.Dict/List) for Python 3.10+.
+- **matplotlib.use('Agg')**: Always set this BEFORE importing pyplot to avoid display errors in headless environments.
+- **VERIFY ALL FUNCTION CALLS**: Check function signatures match arguments before writing calls.
+- **TEST MENTALLY**: Trace through the entire execution path to ensure no NameError/ImportError.
 - **COMMON MISTAKES TO AVOID**:
-  - Passing wrong argument types to functions
-  - Referencing undefined variables
-  - Inconsistent config attribute names
-  - Missing imports
+  - ImportError: class name in import doesn't match class name in target file
+  - NameError: using typing.Dict instead of built-in dict
+  - Missing imports at top of each file
+  - Inconsistent config attribute names across modules
   - Circular imports between modules
-- **PREFER SIMPLICITY**: If the experiment is simple (e.g., logistic regression on synthetic data), use a SINGLE main.py file with all code inline, rather than complex modular structure. Only use modular structure for complex experiments.
 
 【RUN.SH TEMPLATE】
 ```bash
