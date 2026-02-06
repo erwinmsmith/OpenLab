@@ -443,12 +443,13 @@ def run_claude_code_with_retry(prompt: str, run_dir: Path, art_dir: Path, max_re
                 log_file.write(f"This is a RETRY attempt to fix previous errors\n")
             log_file.write("=" * 60 + "\n\n")
         
-        # Run Claude Code
+        # Run Claude Code (stdin=DEVNULL prevents EBADF error when running via nohup)
         proc = subprocess.Popen(
             [claude_path, "-p", "--dangerously-skip-permissions", 
              "--append-system-prompt-file", str(ROOT_DIR / "prompts" / "exp_rules.txt"), 
              current_prompt],
             cwd=str(ROOT_DIR),
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             bufsize=1,
