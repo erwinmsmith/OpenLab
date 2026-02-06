@@ -423,13 +423,11 @@ def run_claude_code_with_retry(prompt: str, run_dir: Path, art_dir: Path, max_re
     Run Claude Code with automatic retry on errors.
     Returns (success, error_msg, retry_count)
     """
-    import threading
-    
     claude_path = os.environ.get("CLAUDE_PATH", "claude")
     claude_log = art_dir / "logs" / "claude_output.log"
     
     for attempt in range(max_retries + 1):
-        print(f"[DEBUG] Claude Code attempt {attempt + 1}/{max_retries + 1}")
+        print(f"[DEBUG] Claude Code attempt {attempt + 1}/{max_retries + 1}", flush=True)
         
         # Prepare prompt (include error feedback for retries)
         current_prompt = prompt
@@ -443,49 +441,54 @@ def run_claude_code_with_retry(prompt: str, run_dir: Path, art_dir: Path, max_re
                 log_file.write(f"This is a RETRY attempt to fix previous errors\n")
             log_file.write("=" * 60 + "\n\n")
         
-        # Run Claude Code (stdin=DEVNULL prevents EBADF error when running via nohup)
-        proc = subprocess.Popen(
-            [claude_path, "-p", "--dangerously-skip-permissions", 
-             "--append-system-prompt-file", str(ROOT_DIR / "prompts" / "exp_rules.txt"), 
-             current_prompt],
-            cwd=str(ROOT_DIR),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            bufsize=1,
-            universal_newlines=True
-        )
-        
-        # Thread to read and write output in real-time
-        def stream_output():
-            with open(claude_log, "a", encoding="utf-8") as f:
-                for line in iter(proc.stdout.readline, ''):
-                    if line:
-                        f.write(line)
-                        f.flush()
-                        print(f"[CLAUDE] {line.rstrip()}")
-                proc.stdout.close()
-        
-        output_thread = threading.Thread(target=stream_output)
-        output_thread.start()
-        
-        # Wait with timeout
+        # Run Claude Code using subprocess.run (more reliable than Popen+threading for nohup)
+        # stdin=DEVNULL prevents EBADF error when running via nohup
         try:
-            return_code = proc.wait(timeout=600)
-            output_thread.join(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            output_thread.join(timeout=5)
+            result = subprocess.run(
+                [claude_path, "-p", "--dangerously-skip-permissions", 
+                 "--append-system-prompt-file", str(ROOT_DIR / "prompts" / "exp_rules.txt"), 
+                 current_prompt],
+                cwd=str(ROOT_DIR),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=600,
+                universal_newlines=True
+            )
+            claude_output = result.stdout or ""
+            return_code = result.returncode
+        except subprocess.TimeoutExpired as e:
+            claude_output = ""
+            if hasattr(e, 'stdout') and e.stdout:
+                claude_output = e.stdout if isinstance(e.stdout, str) else e.stdout.decode('utf-8', errors='ignore')
             with open(claude_log, "a", encoding="utf-8") as f:
+                if claude_output:
+                    f.write(claude_output)
                 f.write("\n\n=== TIMEOUT (600s) ===\n")
+            print(f"[DEBUG] Claude Code timeout on attempt {attempt + 1}", flush=True)
             return False, "Claude Code timeout after 600 seconds", attempt
+        except Exception as e:
+            with open(claude_log, "a", encoding="utf-8") as f:
+                f.write(f"\n\n=== ERROR: {e} ===\n")
+            print(f"[ERROR] Claude Code failed on attempt {attempt + 1}: {e}", flush=True)
+            if attempt < max_retries:
+                continue
+            return False, f"Claude Code error: {e}", attempt
         
+        # Write output to log file
         with open(claude_log, "a", encoding="utf-8") as f:
+            if claude_output:
+                f.write(claude_output)
             f.write(f"\n\n=== ATTEMPT {attempt + 1} FINISHED ===\n")
             f.write(f"Return code: {return_code}\n")
             f.write(f"Ended at: {datetime.now().isoformat()}\n")
         
-        print(f"[DEBUG] Claude attempt {attempt + 1} finished with return code: {return_code}")
+        # Print summary to console
+        output_lines = claude_output.strip().split('\n') if claude_output.strip() else []
+        print(f"[DEBUG] Claude attempt {attempt + 1} finished, return_code={return_code}, output_lines={len(output_lines)}", flush=True)
+        if output_lines:
+            for line in output_lines[-5:]:
+                print(f"[CLAUDE] {line.rstrip()}", flush=True)
         
         # Check if required files exist
         required = [
