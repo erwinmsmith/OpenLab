@@ -18,6 +18,7 @@ Usage:
 import os
 import re
 import subprocess
+import threading
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -281,7 +282,8 @@ class CCExecutor:
 
     def _invoke_claude(self, prompt: str, attempt: int) -> tuple:
         """
-        Invoke Claude Code subprocess.
+        Invoke Claude Code subprocess with real-time output streaming.
+        Uses Popen + threading so output is visible immediately.
         Returns (success, error_msg, output, timed_out)
         """
         # Write log header
@@ -294,12 +296,15 @@ class CCExecutor:
                 f.write("This is a RETRY attempt to fix previous errors\n")
             f.write("=" * 60 + "\n\n")
 
-        claude_output = ""
+        self._log(f"Log file: {self.claude_log}")
+        self._log(f"Use 'tail -f {self.claude_log}' to watch in real-time")
+
+        claude_output_lines = []
         return_code = -1
         timed_out = False
 
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 [
                     self.claude_path, "-p", "--dangerously-skip-permissions",
                     "--append-system-prompt-file", str(ROOT_DIR / "prompts" / "exp_rules.txt"),
@@ -309,26 +314,44 @@ class CCExecutor:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                timeout=self.claude_timeout,
+                bufsize=1,
                 universal_newlines=True,
             )
-            claude_output = result.stdout or ""
-            return_code = result.returncode
-        except subprocess.TimeoutExpired as e:
-            timed_out = True
-            if hasattr(e, "stdout") and e.stdout:
-                claude_output = e.stdout if isinstance(e.stdout, str) else e.stdout.decode("utf-8", errors="ignore")
-            self._log(f"Claude Code timeout on attempt {attempt + 1}")
+
+            # Thread to read and log output in real-time
+            def stream_output():
+                with open(self.claude_log, "a", encoding="utf-8") as f:
+                    for line in iter(proc.stdout.readline, ""):
+                        if line:
+                            f.write(line)
+                            f.flush()
+                            claude_output_lines.append(line)
+                            print(f"[CLAUDE] {line.rstrip()}", flush=True)
+                    proc.stdout.close()
+
+            output_thread = threading.Thread(target=stream_output, daemon=True)
+            output_thread.start()
+
+            # Wait with timeout
+            try:
+                return_code = proc.wait(timeout=self.claude_timeout)
+                output_thread.join(timeout=10)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                proc.kill()
+                output_thread.join(timeout=10)
+                self._log(f"Claude Code timeout on attempt {attempt + 1}")
+
         except Exception as e:
             with open(self.claude_log, "a", encoding="utf-8") as f:
                 f.write(f"\n\n=== ERROR: {e} ===\n")
             self._log(f"Claude Code error on attempt {attempt + 1}: {e}")
             return False, f"Claude Code error: {e}", "", False
 
-        # Write output to log
+        claude_output = "".join(claude_output_lines)
+
+        # Write footer to log
         with open(self.claude_log, "a", encoding="utf-8") as f:
-            if claude_output:
-                f.write(claude_output)
             if timed_out:
                 f.write(f"\n\n=== TIMEOUT ({self.claude_timeout}s) ===\n")
             f.write(f"\n\n=== ATTEMPT {attempt + 1} FINISHED ===\n")
@@ -336,14 +359,10 @@ class CCExecutor:
             f.write(f"Ended at: {datetime.now().isoformat()}\n")
 
         # Print summary
-        output_lines = claude_output.strip().split("\n") if claude_output.strip() else []
         self._log(
             f"Claude attempt {attempt + 1} finished, return_code={return_code}, "
-            f"output_lines={len(output_lines)}, timed_out={timed_out}"
+            f"output_lines={len(claude_output_lines)}, timed_out={timed_out}"
         )
-        if output_lines:
-            for line in output_lines[-5:]:
-                print(f"[CLAUDE] {line.rstrip()}", flush=True)
 
         return True, "", claude_output, timed_out
 

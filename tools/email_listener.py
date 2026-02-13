@@ -30,6 +30,9 @@ from pathlib import Path
 from datetime import datetime
 import mimetypes
 
+# Ensure project root is in sys.path for both direct execution and module import
+sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+
 from tools.experiment_runner import ExperimentRunner
 
 # Optional imports for document parsing
